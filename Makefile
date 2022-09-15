@@ -1,5 +1,5 @@
 build:
-	docker build -t mimir-otlp:0.0.1 .
+	docker build -t songjiayang/mimir-otlp:0.0.1 .
 start:
 	docker-compose up -d 
 stop:

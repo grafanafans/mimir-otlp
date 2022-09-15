@@ -13,7 +13,7 @@ services:
       - "9002:9001"
   
   mimir-otlp:
-    image: mimir-otlp:0.0.1
+    image: songjiayang/mimir-otlp:0.0.1
     depends_on:
       - mimir
     ports:
@@ -33,7 +33,7 @@ services:
       - ./etc/grafana-provisioning-datasources.yaml:/etc/grafana/provisioning/datasources/provisioning-datasources.yaml:ro
       - ./etc/demo.json:/var/lib/grafana/dashboards/demo.json:ro
     ports:
-      - "3001:3000"
+      - "3000:3000"
       
   mimir:
     image: grafana/mimir:2.3.0-rc.1

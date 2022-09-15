@@ -78,11 +78,6 @@ func timeDuration() func(ctx *gin.Context) {
 	return func(ctx *gin.Context) {
 		start := time.Now()
 		ctx.Next()
-
-		if rand.Intn(100) < 10 {
-			time.Sleep(200 * time.Millisecond)
-		}
-
 		status := strconv.Itoa(ctx.Writer.Status())
 		method := ctx.Request.Method
 		elapsed := float64(time.Since(start)) / float64(time.Second)
@@ -106,6 +101,10 @@ func main() {
 	r.Use(timeDuration())
 	r.GET("/users/:id", func(ctx *gin.Context) {
 		id := ctx.Param("id")
+		// 模拟随机延迟请求
+		if rand.Intn(100) < 10 {
+			time.Sleep(200 * time.Millisecond)
+		}
 		ctx.JSON(200, gin.H{
 			"id": id,
 		})
