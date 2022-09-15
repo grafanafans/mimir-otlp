@@ -1,0 +1,51 @@
+version: '3.3'
+services:
+  minio:
+    image: minio/minio
+    entrypoint: [""]
+    command: ["sh", "-c", "mkdir -p /data/mimir-blocks /data/mimir-ruler /data/mimir-alertmanager /data/tempo /data/loki-data /data/loki-ruler && minio server /data --console-address :9002"]
+    environment:
+      - MINIO_ACCESS_KEY=minio
+      - MINIO_SECRET_KEY=supersecret
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9002:9001"
+  
+  mimir-otlp:
+    image: mimir-otlp:0.0.1
+    depends_on:
+      - mimir
+    ports:
+      - "8080:8080"
+
+  grafana:
+    image: grafana/grafana:9.1.2
+    pull_policy: always
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_USERS_DEFAULT_THEME=light
+      - GF_LOG_MODE=console
+      - GF_LOG_LEVEL=critical
+    volumes:
+      - ./etc/grafana-provisioning-dashboards.yaml:/etc/grafana/provisioning/dashboards/provisioning-dashboards.yaml:ro
+      - ./etc/grafana-provisioning-datasources.yaml:/etc/grafana/provisioning/datasources/provisioning-datasources.yaml:ro
+      - ./etc/demo.json:/var/lib/grafana/dashboards/demo.json:ro
+    ports:
+      - "3001:3000"
+      
+  mimir:
+    image: grafana/mimir:2.3.0-rc.1
+    command: ["-config.file=/etc/mimir.yaml"]
+    hostname: mimir
+    depends_on:
+      - minio
+    volumes:
+      - ./etc/mimir.yaml:/etc/mimir.yaml
+      - mimir-data:/data
+
+volumes:
+  mimir-data:
+  minio-data:
+
