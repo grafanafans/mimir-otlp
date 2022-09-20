@@ -12,7 +12,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
-	promExporter "go.opentelemetry.io/otel/exporters/prometheus"
+	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/metric/global"
 	"go.opentelemetry.io/otel/metric/instrument"
@@ -23,8 +23,38 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-func initMeter() *metric.MeterProvider {
+func main() {
+	provider := initMeter()
+	defer provider.Shutdown(context.Background())
 
+	r := gin.New()
+	r.Use(timeDuration())
+	r.GET("/users/:id", func(ctx *gin.Context) {
+		id := ctx.Param("id")
+		// 模拟随机延迟请求
+		if rand.Intn(100) < 10 {
+			time.Sleep(200 * time.Millisecond)
+		}
+		ctx.JSON(200, gin.H{
+			"id": id,
+		})
+	})
+
+	// register prometheus handler
+	promHandler := promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+		},
+	)
+	r.GET("/metrics", func(ctx *gin.Context) {
+		promHandler.ServeHTTP(ctx.Writer, ctx.Request)
+	})
+
+	r.Run(":8080")
+}
+
+func initMeter() *metric.MeterProvider {
 	// init otlpmetrichttp exporter
 	ep, _ := otlpmetrichttp.New(
 		context.Background(),
@@ -36,11 +66,11 @@ func initMeter() *metric.MeterProvider {
 		}),
 	)
 
-	// init stdout exporter
+	// init stdoutmetric exporter
 	ep2, _ := stdoutmetric.New()
 
 	// init prometheus exporter
-	ep3 := promExporter.New()
+	ep3 := promexporter.New()
 	prometheus.Register(ep3.Collector)
 
 	provider := metric.NewMeterProvider(
@@ -77,35 +107,4 @@ func timeDuration() func(ctx *gin.Context) {
 			attribute.String("status", status),
 		)
 	}
-}
-
-func main() {
-	provider := initMeter()
-	defer provider.Shutdown(context.Background())
-
-	r := gin.New()
-	r.Use(timeDuration())
-	r.GET("/users/:id", func(ctx *gin.Context) {
-		id := ctx.Param("id")
-		// 模拟随机延迟请求
-		if rand.Intn(100) < 10 {
-			time.Sleep(200 * time.Millisecond)
-		}
-		ctx.JSON(200, gin.H{
-			"id": id,
-		})
-	})
-
-	// register prometheus handler
-	promHandler := promhttp.HandlerFor(
-		prometheus.DefaultGatherer,
-		promhttp.HandlerOpts{
-			EnableOpenMetrics: true,
-		},
-	)
-	r.GET("/metrics", func(ctx *gin.Context) {
-		promHandler.ServeHTTP(ctx.Writer, ctx.Request)
-	})
-
-	r.Run(":8080")
 }
