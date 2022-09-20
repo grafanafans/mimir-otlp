@@ -16,30 +16,31 @@ package main
 
 import (
 	"context"
-	"log"
 	"math/rand"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	promExporter "go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/metric/global"
 	"go.opentelemetry.io/otel/metric/instrument"
-	"go.opentelemetry.io/otel/sdk/metric/aggregator/histogram"
-	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
-	"go.opentelemetry.io/otel/sdk/metric/export/aggregation"
-	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
-	simple "go.opentelemetry.io/otel/sdk/metric/selector/simple"
+	"go.opentelemetry.io/otel/sdk/metric"
 )
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-func initMeter() (*controller.Controller, error) {
-	ep, err := otlpmetrichttp.New(
+func initMeter() *metric.MeterProvider {
+
+	// init otlpmetrichttp exporter
+	ep, _ := otlpmetrichttp.New(
 		context.Background(),
 		otlpmetrichttp.WithEndpoint("mimir:8080"),
 		otlpmetrichttp.WithURLPath("/otlp/v1/metrics"),
@@ -48,24 +49,26 @@ func initMeter() (*controller.Controller, error) {
 			"X-Scope-OrgID": "demo",
 		}),
 	)
-	if err != nil {
-		return nil, err
-	}
 
-	c := controller.New(
-		processor.NewFactory(
-			simple.NewWithHistogramDistribution(
-				histogram.WithExplicitBoundaries([]float64{0.05, 0.1, 0.25, 0.5, 1, 2}),
-			),
-			aggregation.CumulativeTemporalitySelector(),
-			processor.WithMemory(true),
+	// init stdout exporter
+	ep2, _ := stdoutmetric.New()
+
+	// init prometheus exporter
+	ep3 := promExporter.New()
+	prometheus.Register(ep3.Collector)
+
+	provider := metric.NewMeterProvider(
+		metric.WithReader(
+			metric.NewPeriodicReader(ep, metric.WithInterval(15*time.Second)),
 		),
-		controller.WithExporter(ep),
-		controller.WithCollectPeriod(15*time.Second),
+		metric.WithReader(
+			metric.NewPeriodicReader(ep2, metric.WithInterval(15*time.Second)),
+		),
+		metric.WithReader(ep3),
 	)
+	global.SetMeterProvider(provider)
 
-	global.SetMeterProvider(c)
-	return c, c.Start(context.Background())
+	return provider
 }
 
 func timeDuration() func(ctx *gin.Context) {
@@ -91,11 +94,8 @@ func timeDuration() func(ctx *gin.Context) {
 }
 
 func main() {
-	c, err := initMeter()
-	if err != nil {
-		log.Fatal("init meter with error : " + err.Error())
-	}
-	defer c.Stop(context.Background())
+	provider := initMeter()
+	defer provider.Shutdown(context.Background())
 
 	r := gin.New()
 	r.Use(timeDuration())
@@ -109,5 +109,17 @@ func main() {
 			"id": id,
 		})
 	})
+
+	// register prometheus handler
+	promHandler := promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+		},
+	)
+	r.GET("/metrics", func(ctx *gin.Context) {
+		promHandler.ServeHTTP(ctx.Writer, ctx.Request)
+	})
+
 	r.Run(":8080")
 }
